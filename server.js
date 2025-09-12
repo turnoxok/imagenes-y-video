@@ -26,32 +26,27 @@ app.post("/convert", upload.fields([
   const logoFile = req.files.logo ? req.files.logo[0].path : null;
   const outputFile = path.join(uploadDir, req.files.video[0].filename + "_final.mp4");
 
-  // Recibimos posiciones y tamaños desde el front
+  // Posiciones y tamaños enviados desde el front
   const videoX = parseInt(req.body.videoX) || 0;
   const videoY = parseInt(req.body.videoY) || 0;
-  const videoW = parseInt(req.body.videoW) || null;
-  const videoH = parseInt(req.body.videoH) || null;
+  const videoW = parseInt(req.body.videoWidth) || null;
+  const videoH = parseInt(req.body.videoHeight) || null;
 
   const logoX = parseInt(req.body.logoX) || 0;
   const logoY = parseInt(req.body.logoY) || 0;
-  const logoW = parseInt(req.body.logoW) || null;
-  const logoH = parseInt(req.body.logoH) || null;
+  const logoW = parseInt(req.body.logoWidth) || null;
+  const logoH = parseInt(req.body.logoHeight) || null;
 
   let command = ffmpeg();
 
-  // Primer input: video
+  // Input video
   command = command.input(videoFile);
+  if (videoW && videoH) command = command.videoFilter(`crop=${videoW}:${videoH}:${videoX}:${videoY}`);
 
-  // Si hay videoW/videoH, escalamos el video
-  let videoFilter = "";
-  if (videoW && videoH) videoFilter = `scale=${videoW}:${videoH}`;
-  if (videoFilter) command = command.videoFilter(videoFilter);
-
-  // Si hay logo
+  // Input logo
   if (logoFile) {
     command = command.input(logoFile)
       .complexFilter([
-        // Escalamos logo
         `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
       ]);
   }
