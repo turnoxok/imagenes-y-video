@@ -31,30 +31,42 @@ app.post("/convert", upload.fields([
   const logoW = parseInt(req.body.logoWidth) || 250;
   const logoH = parseInt(req.body.logoHeight) || 250;
 
+  // Primero escalamos y centramos el video
+  const tempVideo = path.join(uploadDir, req.files.video[0].filename + "_temp.mp4");
+
   ffmpeg(videoFile)
-    .input(logoFile)
-    .complexFilter([
-      `scale=w=1080:h=1350:force_original_aspect_ratio=decrease`,
-      `pad=1080:1350:(1080-iw)/2:(1350-ih)/2:black`,
-      `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
-    ])
-    .outputOptions([
-      "-c:v libx264",
-      "-c:a aac",
-      "-movflags +faststart"
-    ])
+    .videoCodec("libx264")
+    .audioCodec("aac")
+    .size("1080x1350")
+    .aspect("16:9")
+    .outputOptions(["-movflags +faststart"])
     .on("end", () => {
-      res.download(outputFile, "video_final.mp4", () => {
-        fs.unlinkSync(videoFile);
-        fs.unlinkSync(logoFile);
-        fs.unlinkSync(outputFile);
-      });
+      // Luego overlay del logo
+      ffmpeg(tempVideo)
+        .input(logoFile)
+        .complexFilter([
+          `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
+        ])
+        .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
+        .on("end", () => {
+          res.download(outputFile, "video_final.mp4", () => {
+            fs.unlinkSync(videoFile);
+            fs.unlinkSync(logoFile);
+            fs.unlinkSync(tempVideo);
+            fs.unlinkSync(outputFile);
+          });
+        })
+        .on("error", (err) => {
+          console.error("Error en overlay:", err);
+          res.status(500).send("Error en la conversión");
+        })
+        .save(outputFile);
     })
     .on("error", (err) => {
-      console.error("Error en la conversión:", err);
+      console.error("Error al escalar el video:", err);
       res.status(500).send("Error en la conversión");
     })
-    .save(outputFile);
+    .save(tempVideo);
 });
 
 const PORT = process.env.PORT || 3000;
