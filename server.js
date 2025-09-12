@@ -20,22 +20,30 @@ app.post("/convert", upload.fields([
   { name: "video", maxCount: 1 },
   { name: "logo", maxCount: 1 }
 ]), (req, res) => {
+  if (!req.files || !req.files.video || !req.files.logo) {
+    return res.status(400).send("Se requiere video y logo");
+  }
+
   const videoFile = req.files.video[0].path;
   const logoFile = req.files.logo[0].path;
   const outputFile = path.join(uploadDir, req.files.video[0].filename + "_final.mp4");
 
-  const logoX = parseInt(req.body.logoX) || 20;
-  const logoY = parseInt(req.body.logoY) || 20;
-  const logoW = parseInt(req.body.logoWidth) || 250;
-  const logoH = parseInt(req.body.logoHeight) || 250;
+  // Posición y tamaño del logo
+  const logoX = req.body.logoX || 20;
+  const logoY = req.body.logoY || 20;
+  const logoW = req.body.logoWidth || 250;
+  const logoH = req.body.logoHeight || 250;
+
+  // Fijamos tamaño final 1080x1350, centrando video con padding si es necesario
+  const filters = [
+    "scale=w=1080:h=1350:force_original_aspect_ratio=decrease",
+    "pad=1080:1350:(1080-iw)/2:(1350-ih)/2:black",
+    `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
+  ];
 
   ffmpeg(videoFile)
     .input(logoFile)
-    .complexFilter([
-      "scale=w=1080:h=1350:force_original_aspect_ratio=decrease",
-      "pad=1080:1350:(1080-iw)/2:(1350-ih)/2:black",
-      `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
-    ])
+    .complexFilter(filters)
     .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
     .on("end", () => {
       res.download(outputFile, "video_final.mp4", () => {
@@ -45,7 +53,7 @@ app.post("/convert", upload.fields([
       });
     })
     .on("error", (err) => {
-      console.error("Error FFmpeg:", err);
+      console.error(err);
       res.status(500).send("Error en la conversión");
     })
     .save(outputFile);
