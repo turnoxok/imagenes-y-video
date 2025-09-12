@@ -23,23 +23,18 @@ app.post("/convert", upload.fields([
   if (!req.files || !req.files.video) return res.status(400).send("No se subió video");
 
   const videoFile = req.files.video[0].path;
+  const logoFile = req.files.logo ? req.files.logo[0].path : null;
   const outputFile = path.join(uploadDir, req.files.video[0].filename + "_final.mp4");
 
-  const logoFile = req.files.logo ? req.files.logo[0].path : null;
-  const logoX = req.body.logoX || 20;
-  const logoY = req.body.logoY || 20;
-  const logoW = req.body.logoWidth || 250;
-  const logoH = req.body.logoHeight || 250;
+  let command = ffmpeg(videoFile)
+    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"]);
 
-  const filters = logoFile
-    ? `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
-    : null;
+  if (logoFile) {
+    command = command.input(logoFile)
+      .complexFilter(`[1:v]scale=250:-1[logo];[0:v][logo]overlay=20:20`);
+  }
 
-  let ff = ffmpeg(videoFile).outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"]);
-
-  if (logoFile) ff = ff.input(logoFile).complexFilter(filters);
-
-  ff.save(outputFile)
+  command
     .on("end", () => {
       res.download(outputFile, "video_final.mp4", () => {
         fs.unlinkSync(videoFile);
@@ -50,7 +45,8 @@ app.post("/convert", upload.fields([
     .on("error", (err) => {
       console.error("Error en la conversión:", err);
       res.status(500).send("Error en la conversión");
-    });
+    })
+    .save(outputFile);
 });
 
 const PORT = process.env.PORT || 3000;
