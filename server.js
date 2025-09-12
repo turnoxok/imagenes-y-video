@@ -26,15 +26,37 @@ app.post("/convert", upload.fields([
   const logoFile = req.files.logo ? req.files.logo[0].path : null;
   const outputFile = path.join(uploadDir, req.files.video[0].filename + "_final.mp4");
 
-  let command = ffmpeg(videoFile)
-    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"]);
+  // Recibimos posiciones y tamaños desde el front
+  const videoX = parseInt(req.body.videoX) || 0;
+  const videoY = parseInt(req.body.videoY) || 0;
+  const videoW = parseInt(req.body.videoW) || null;
+  const videoH = parseInt(req.body.videoH) || null;
 
+  const logoX = parseInt(req.body.logoX) || 0;
+  const logoY = parseInt(req.body.logoY) || 0;
+  const logoW = parseInt(req.body.logoW) || null;
+  const logoH = parseInt(req.body.logoH) || null;
+
+  let command = ffmpeg();
+
+  // Primer input: video
+  command = command.input(videoFile);
+
+  // Si hay videoW/videoH, escalamos el video
+  let videoFilter = "";
+  if (videoW && videoH) videoFilter = `scale=${videoW}:${videoH}`;
+  if (videoFilter) command = command.videoFilter(videoFilter);
+
+  // Si hay logo
   if (logoFile) {
     command = command.input(logoFile)
-      .complexFilter(`[1:v]scale=250:-1[logo];[0:v][logo]overlay=20:20`);
+      .complexFilter([
+        // Escalamos logo
+        `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
+      ]);
   }
 
-  command
+  command.outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
     .on("end", () => {
       res.download(outputFile, "video_final.mp4", () => {
         fs.unlinkSync(videoFile);
