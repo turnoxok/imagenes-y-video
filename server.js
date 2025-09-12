@@ -8,54 +8,51 @@ const cors = require("cors");
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "50mb" })); // para recibir video base64 y parámetros
 
 // Crear carpeta uploads si no existe
 const uploadDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
+// Configurar multer
+const upload = multer({ dest: uploadDir });
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-// Endpoint para recibir canvas + logo y generar MP4
-app.post("/convert", async (req, res) => {
-  try {
-    const { videoData, logoData, logoX = 20, logoY = 20, logoW = 250, logoH = 250 } = req.body;
-    if (!videoData) return res.status(400).send("No se envió video");
+app.post("/convert", upload.fields([
+  { name: "video", maxCount: 1 },
+  { name: "logo", maxCount: 1 }
+]), (req, res) => {
+  if (!req.files || !req.files.video) return res.status(400).send("No se subió video");
 
-    // Guardar video temporal
-    const videoBuffer = Buffer.from(videoData.split(",")[1], "base64");
-    const videoFile = path.join(uploadDir, `video_${Date.now()}.webm`);
-    fs.writeFileSync(videoFile, videoBuffer);
+  const videoFile = req.files.video[0].path;
+  const outputFile = path.join(uploadDir, req.files.video[0].filename + "_final.mp4");
 
-    let command = ffmpeg(videoFile).outputOptions(["-c:v libx264", "-c:a aac"]);
+  const logoFile = req.files.logo ? req.files.logo[0].path : null;
+  const logoX = req.body.logoX || 20;
+  const logoY = req.body.logoY || 20;
+  const logoW = req.body.logoWidth || 250;
+  const logoH = req.body.logoHeight || 250;
 
-    // Si hay logo
-    if (logoData) {
-      const logoBuffer = Buffer.from(logoData.split(",")[1], "base64");
-      const logoFile = path.join(uploadDir, `logo_${Date.now()}.png`);
-      fs.writeFileSync(logoFile, logoBuffer);
+  let command = ffmpeg(videoFile)
+    .size("1080x1350")        // fuerza formato 1080x1350
+    .outputOptions(["-c:v libx264","-c:a aac"]);
 
-      command = command.input(logoFile)
-        .complexFilter([`[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`]);
-    }
-
-    const output = path.join(uploadDir, `video_final_${Date.now()}.mp4`);
-
-    command.on("end", () => {
-      res.download(output, "video_final.mp4", () => {
-        fs.unlinkSync(videoFile);
-        if (logoData) fs.unlinkSync(path.join(uploadDir, `logo_${Date.now()}.png`));
-        fs.unlinkSync(output);
-      });
-    }).on("error", (err) => {
-      console.error(err);
-      res.status(500).send("Error en la conversión");
-    }).save(output);
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Error del servidor");
+  if (logoFile) {
+    command = command.input(logoFile)
+      .complexFilter([`[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`]);
   }
+
+  command.on("end", () => {
+    res.download(outputFile, "video_final.mp4", () => {
+      fs.unlinkSync(videoFile);
+      if (logoFile) fs.unlinkSync(logoFile);
+      fs.unlinkSync(outputFile);
+    });
+  })
+  .on("error", (err) => {
+    console.error(err);
+    res.status(500).send("Error en la conversión");
+  })
+  .save(outputFile);
 });
 
 const PORT = process.env.PORT || 3000;
