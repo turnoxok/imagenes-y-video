@@ -1,2 +1,27 @@
+# Node modules
 node_modules/
+
+# Carpeta de uploads temporales
 uploads/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Entornos de desarrollo
+.env
+
+# Editor/IDE
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Build outputs
+dist/
+build/
