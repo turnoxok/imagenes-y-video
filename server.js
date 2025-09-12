@@ -8,12 +8,11 @@ const cors = require("cors");
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 
-// Crear carpeta uploads si no existe
 const uploadDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
-// Configurar multer
 const upload = multer({ dest: uploadDir });
 ffmpeg.setFfmpegPath(ffmpegPath);
 
@@ -32,27 +31,32 @@ app.post("/convert", upload.fields([
   const logoW = req.body.logoWidth || 250;
   const logoH = req.body.logoHeight || 250;
 
-  let command = ffmpeg(videoFile)
-    .size("1080x1350")        // fuerza formato 1080x1350
-    .outputOptions(["-c:v libx264","-c:a aac"]);
+  // Fijamos tamaño final 1080x1350, centrando video con padding si es necesario
+  let filters = [
+    `scale=w=1080:h=1350:force_original_aspect_ratio=decrease`,
+    `pad=1080:1350:(1080-iw)/2:(1350-ih)/2:black`
+  ];
 
   if (logoFile) {
-    command = command.input(logoFile)
-      .complexFilter([`[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`]);
+    filters.push(`[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`);
   }
 
-  command.on("end", () => {
-    res.download(outputFile, "video_final.mp4", () => {
-      fs.unlinkSync(videoFile);
-      if (logoFile) fs.unlinkSync(logoFile);
-      fs.unlinkSync(outputFile);
-    });
-  })
-  .on("error", (err) => {
-    console.error(err);
-    res.status(500).send("Error en la conversión");
-  })
-  .save(outputFile);
+  ffmpeg(videoFile)
+    .input(logoFile || videoFile) // si hay logo, input adicional, si no, solo video
+    .complexFilter(filters)
+    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
+    .on("end", () => {
+      res.download(outputFile, "video_final.mp4", () => {
+        fs.unlinkSync(videoFile);
+        if (logoFile) fs.unlinkSync(logoFile);
+        fs.unlinkSync(outputFile);
+      });
+    })
+    .on("error", (err) => {
+      console.error(err);
+      res.status(500).send("Error en la conversión");
+    })
+    .save(outputFile);
 });
 
 const PORT = process.env.PORT || 3000;
