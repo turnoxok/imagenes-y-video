@@ -26,6 +26,7 @@ app.post("/convert", upload.fields([
   const logoFile = req.files.logo ? req.files.logo[0].path : null;
   const outputFile = path.join(uploadDir, req.files.video[0].filename + "_final.mp4");
 
+  // Recibimos posiciones y tamaños desde el front
   const videoX = parseInt(req.body.videoX) || 0;
   const videoY = parseInt(req.body.videoY) || 0;
   const videoW = parseInt(req.body.videoW) || null;
@@ -33,18 +34,24 @@ app.post("/convert", upload.fields([
 
   const logoX = parseInt(req.body.logoX) || 0;
   const logoY = parseInt(req.body.logoY) || 0;
-  const logoW = parseInt(req.body.logoWidth) || 250;
-  const logoH = parseInt(req.body.logoHeight) || 250;
+  const logoW = parseInt(req.body.logoW) || null;
+  const logoH = parseInt(req.body.logoH) || null;
 
-  let command = ffmpeg().input(videoFile);
+  let command = ffmpeg();
 
-  if (videoW && videoH) {
-    command = command.videoFilter(`scale=${videoW}:${videoH}`);
-  }
+  // Primer input: video
+  command = command.input(videoFile);
 
+  // Si hay videoW/videoH, escalamos el video
+  let videoFilter = "";
+  if (videoW && videoH) videoFilter = `scale=${videoW}:${videoH}`;
+  if (videoFilter) command = command.videoFilter(videoFilter);
+
+  // Si hay logo
   if (logoFile) {
     command = command.input(logoFile)
       .complexFilter([
+        // Escalamos logo
         `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
       ]);
   }
