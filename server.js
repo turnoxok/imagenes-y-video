@@ -27,22 +27,24 @@ app.post("/convert", upload.single("video"), (req, res) => {
   const output = path.join(uploadDir, req.file.filename + ".mp4");
 
   ffmpeg(input)
-  .outputOptions([
-    "-c:v libx264",
-    "-c:a aac"
-  ])
-  .on("end", () => {
-    res.download(output, "video_final.mp4", () => {
-      fs.unlinkSync(input);
-      fs.unlinkSync(output);
-    });
-  })
-  .on("error", (err) => {
-    console.error(err);
-    res.status(500).send("Error en la conversión");
-  })
-  .save(output);
-
+    .outputOptions([
+      "-c:v libx264", // video codec
+      "-c:a aac"      // audio codec
+    ])
+    .on("end", () => {
+      // Descargar video final
+      res.download(output, "video_final.mp4", () => {
+        // Limpiar archivos temporales
+        fs.unlinkSync(input);
+        fs.unlinkSync(output);
+      });
+    })
+    .on("error", (err) => {
+      console.error(err);
+      res.status(500).send("Error en la conversión");
+    })
+    .save(output);
+});
 
 // Puerto obligatorio para Railway
 const PORT = process.env.PORT || 3000;
