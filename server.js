@@ -27,13 +27,11 @@ app.post("/convert", upload.fields([
   const logoFile = req.files.logo[0].path;
   const outputFile = path.join(uploadDir, req.files.video[0].filename + "_final.mp4");
 
-  // Coordenadas y tamaño del logo desde frontend
   const logoX = parseInt(req.body.logoX) || 20;
   const logoY = parseInt(req.body.logoY) || 20;
   const logoW = parseInt(req.body.logoWidth) || 250;
   const logoH = parseInt(req.body.logoHeight) || 250;
 
-  // Escalar video a 1080x1350 manteniendo proporción y centrar
   const filters = [
     `scale=w=1080:h=1350:force_original_aspect_ratio=decrease`,
     `pad=1080:1350:(1080-iw)/2:(1350-ih)/2:black`,
