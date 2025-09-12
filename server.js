@@ -31,32 +31,49 @@ app.post("/convert", upload.fields([
   const logoW = req.body.logoWidth || 250;
   const logoH = req.body.logoHeight || 250;
 
-  // Fijamos tamaño final 1080x1350, centrando video con padding si es necesario
-  let filters = [
-    `scale=w=1080:h=1350:force_original_aspect_ratio=decrease`,
-    `pad=1080:1350:(1080-iw)/2:(1350-ih)/2:black`
-  ];
-
   if (logoFile) {
-    filters.push(`[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`);
-  }
+    // Video + logo
+    ffmpeg(videoFile)
+      .input(logoFile)
+      .complexFilter([
+        `scale=w=1080:h=1350:force_original_aspect_ratio=decrease`,
+        `pad=1080:1350:(1080-iw)/2:(1350-ih)/2:black`,
+        `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
+      ])
+      .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
+      .on("end", () => {
+        res.download(outputFile, "video_final.mp4", () => {
+          fs.unlinkSync(videoFile);
+          fs.unlinkSync(logoFile);
+          fs.unlinkSync(outputFile);
+        });
+      })
+      .on("error", (err) => {
+        console.error(err);
+        res.status(500).send("Error en la conversión");
+      })
+      .save(outputFile);
 
-  ffmpeg(videoFile)
-    .input(logoFile || videoFile) // si hay logo, input adicional, si no, solo video
-    .complexFilter(filters)
-    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
-    .on("end", () => {
-      res.download(outputFile, "video_final.mp4", () => {
-        fs.unlinkSync(videoFile);
-        if (logoFile) fs.unlinkSync(logoFile);
-        fs.unlinkSync(outputFile);
-      });
-    })
-    .on("error", (err) => {
-      console.error(err);
-      res.status(500).send("Error en la conversión");
-    })
-    .save(outputFile);
+  } else {
+    // Solo video
+    ffmpeg(videoFile)
+      .videoFilters([
+        `scale=w=1080:h=1350:force_original_aspect_ratio=decrease`,
+        `pad=1080:1350:(1080-iw)/2:(1350-ih)/2:black`
+      ])
+      .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
+      .on("end", () => {
+        res.download(outputFile, "video_final.mp4", () => {
+          fs.unlinkSync(videoFile);
+          fs.unlinkSync(outputFile);
+        });
+      })
+      .on("error", (err) => {
+        console.error(err);
+        res.status(500).send("Error en la conversión");
+      })
+      .save(outputFile);
+  }
 });
 
 const PORT = process.env.PORT || 3000;
