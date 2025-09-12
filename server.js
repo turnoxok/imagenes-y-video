@@ -13,43 +13,37 @@ app.use(express.json());
 const uploadDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
-const upload = multer({ dest: uploadDir });
 ffmpeg.setFfmpegPath(ffmpegPath);
+const upload = multer({ dest: uploadDir });
 
-app.post("/convert", upload.fields([
-  { name: "video", maxCount: 1 },
-  { name: "logo", maxCount: 1 }
-]), (req, res) => {
-  if (!req.files || !req.files.video || !req.files.logo)
-    return res.status(400).send("Video y logo son obligatorios");
+// Endpoint para convertir video a MP4
+app.post("/convert", upload.fields([{ name: "video", maxCount: 1 }, { name: "logo", maxCount: 1 }]), (req, res) => {
+  if (!req.files || !req.files.video) return res.status(400).send("No se subió video");
 
   const videoFile = req.files.video[0].path;
-  const logoFile = req.files.logo[0].path;
+  const logoFile = req.files.logo ? req.files.logo[0].path : null;
   const outputFile = path.join(uploadDir, req.files.video[0].filename + "_final.mp4");
 
-  const logoX = Math.round(req.body.logoX) || 20;
-  const logoY = Math.round(req.body.logoY) || 20;
-  const logoW = Math.round(req.body.logoWidth) || 250;
-  const logoH = Math.round(req.body.logoHeight) || 250;
-
-  // Complejo filter: escala video a 1080x1350, mantiene proporción, centra y overlay logo
-  const filter = `[0:v]scale=1080:1350:force_original_aspect_ratio=decrease,pad=1080:1350:(1080-iw)/2:(1350-ih)/2:black[vid];` +
-                 `[1:v]scale=${logoW}:${logoH}[logo];` +
-                 `[vid][logo]overlay=${logoX}:${logoY}:format=auto`;
-
-  ffmpeg(videoFile)
-    .input(logoFile)
-    .complexFilter(filter)
+  // Si hay logo, lo sobreponemos; si no, solo convertimos a MP4
+  let command = ffmpeg(videoFile)
     .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
+    .size("1080x1350");
+
+  if (logoFile) {
+    command = command.input(logoFile)
+      .complexFilter([`[0:v][1:v]overlay=${req.body.logoX || 20}:${req.body.logoY || 20}`]);
+  }
+
+  command
     .on("end", () => {
       res.download(outputFile, "video_final.mp4", () => {
         fs.unlinkSync(videoFile);
-        fs.unlinkSync(logoFile);
+        if (logoFile) fs.unlinkSync(logoFile);
         fs.unlinkSync(outputFile);
       });
     })
     .on("error", (err) => {
-      console.error("Error en la conversión:", err.message);
+      console.error("Error en la conversión:", err);
       res.status(500).send("Error en la conversión");
     })
     .save(outputFile);
