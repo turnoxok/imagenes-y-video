@@ -24,7 +24,6 @@ app.post("/convert", upload.fields([
   const logoFile = req.files.logo[0].path;
   const outputFile = path.join(uploadDir, req.files.video[0].filename + "_final.mp4");
 
-  // Parseamos coordenadas/tamaño
   const logoX = parseInt(req.body.logoX) || 20;
   const logoY = parseInt(req.body.logoY) || 20;
   const logoW = parseInt(req.body.logoWidth) || 250;
