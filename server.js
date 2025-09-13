@@ -16,8 +16,11 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 const upload = multer({ dest: uploadDir });
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-// --- 🔹 Streaming de progreso con SSE ---
+// 🔹 Almacenamos estados por jobId
+const jobs = {};
 const progressClients = {};
+
+// --- SSE progreso ---
 app.get("/progress/:id", (req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -33,7 +36,7 @@ app.get("/progress/:id", (req, res) => {
   });
 });
 
-// --- 🔹 Conversión de video ---
+// --- convertir ---
 app.post("/convert", upload.fields([{ name: "video", maxCount: 1 }, { name: "logo", maxCount: 1 }]), (req, res) => {
   if (!req.files || !req.files.video) return res.status(400).send("No se subió video");
 
@@ -47,6 +50,7 @@ app.post("/convert", upload.fields([{ name: "video", maxCount: 1 }, { name: "log
   const logoH = parseInt(req.body.logoHeight) || 100;
 
   const jobId = Date.now().toString();
+  jobs[jobId] = { output: outputFile };
 
   let command = ffmpeg(videoFile).outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"]);
 
@@ -71,26 +75,29 @@ app.post("/convert", upload.fields([{ name: "video", maxCount: 1 }, { name: "log
     .on("error", (err) => {
       console.error("Error en la conversión:", err);
       if (progressClients[jobId]) {
-        progressClients[jobId].write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+        progressClients[jobId].write(`data: ${JSON.stringify({ error: true })}\n\n`);
         progressClients[jobId].end();
         delete progressClients[jobId];
       }
     })
     .save(outputFile);
 
-  res.json({ jobId, outputFile });
+  res.json({ jobId });
 });
 
-// --- 🔹 Endpoint de descarga ---
+// --- descarga ---
 app.get("/download/:id", (req, res) => {
-  const filename = fs.readdirSync(uploadDir).find(f => f.includes(req.params.id));
-  if (!filename) return res.status(404).send("Archivo no encontrado");
+  const id = req.params.id;
+  const job = jobs[id];
+  if (!job) return res.status(404).send("Job no encontrado");
 
-  const filePath = path.join(uploadDir, filename);
-  res.download(filePath, "video_final.mp4", () => {
-    fs.unlinkSync(filePath);
+  const outputFile = job.output;
+  res.download(outputFile, "video_final.mp4", () => {
+    // limpiar
+    try { fs.unlinkSync(outputFile); } catch {}
+    delete jobs[id];
   });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
