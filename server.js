@@ -67,11 +67,11 @@ app.post("/convert", upload.fields([{ name:"video", maxCount:1 }, { name:"logo",
         progressClients[jobId].end();
         delete progressClients[jobId];
       }
-      res.download(outputFile, "video_final.mp4", () => {
-        fs.unlinkSync(videoFile);
-        if (logoFile) fs.unlinkSync(logoFile);
-        fs.unlinkSync(outputFile);
-      });
+     res.download(outputFile, "video_final.mp4", (err) => {
+  if (err) console.error("Error al enviar archivo:", err);
+  // 🔹 no borrar nada por ahora, para testear
+});
+
     })
     .on("error", (err) => {
       console.error("Error en la conversión:", err);
