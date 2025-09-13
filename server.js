@@ -67,15 +67,14 @@ app.post("/convert", upload.fields([{ name:"video", maxCount:1 }, { name:"logo",
         progressClients[jobId].end();
         delete progressClients[jobId];
       }
-      console.log("✅ Conversión finalizada, enviando archivo...");
-      res.download(outputFile, "video_final.mp4", (err) => {
-        if (err) console.error("Error al enviar archivo:", err);
-        else console.log("📤 Archivo enviado correctamente");
-        // 🔹 No borramos archivos todavía (para debug en Railway)
+      res.download(outputFile, "video_final.mp4", () => {
+        fs.unlinkSync(videoFile);
+        if (logoFile) fs.unlinkSync(logoFile);
+        fs.unlinkSync(outputFile);
       });
     })
     .on("error", (err) => {
-      console.error("❌ Error en la conversión:", err);
+      console.error("Error en la conversión:", err);
       res.status(500).send("Error en la conversión");
     })
     .save(outputFile);
