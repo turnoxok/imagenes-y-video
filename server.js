@@ -6,8 +6,8 @@ const fs = require("fs");
 const path = require("path");
 const cors = require("cors");
 
-const app = express(); 
-app.use(cors()); 
+const app = express();
+app.use(cors());
 app.use(express.json());
 
 const uploadDir = path.join(__dirname, "uploads");
@@ -16,14 +16,13 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 const upload = multer({ dest: uploadDir });
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-// --- Guardamos conexiones para progreso
+// --- 🔹 Streaming de progreso con SSE ---
 const progressClients = {};
-
 app.get("/progress/:id", (req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
-    "Connection": "keep-alive"
+    Connection: "keep-alive"
   });
 
   const id = req.params.id;
@@ -34,6 +33,7 @@ app.get("/progress/:id", (req, res) => {
   });
 });
 
+// --- 🔹 Conversión de video ---
 app.post("/convert", upload.fields([{ name: "video", maxCount: 1 }, { name: "logo", maxCount: 1 }]), (req, res) => {
   if (!req.files || !req.files.video) return res.status(400).send("No se subió video");
 
@@ -48,8 +48,7 @@ app.post("/convert", upload.fields([{ name: "video", maxCount: 1 }, { name: "log
 
   const jobId = Date.now().toString();
 
-  let command = ffmpeg(videoFile)
-    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"]);
+  let command = ffmpeg(videoFile).outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"]);
 
   if (logoFile) {
     command = command.input(logoFile)
@@ -68,21 +67,30 @@ app.post("/convert", upload.fields([{ name: "video", maxCount: 1 }, { name: "log
         progressClients[jobId].end();
         delete progressClients[jobId];
       }
-      res.download(outputFile, "video_final.mp4", () => {
-        fs.unlinkSync(videoFile);
-        if (logoFile) fs.unlinkSync(logoFile);
-        fs.unlinkSync(outputFile);
-      });
     })
     .on("error", (err) => {
       console.error("Error en la conversión:", err);
-      res.status(500).send("Error en la conversión");
+      if (progressClients[jobId]) {
+        progressClients[jobId].write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+        progressClients[jobId].end();
+        delete progressClients[jobId];
+      }
     })
     .save(outputFile);
 
-  // devolvemos el jobId al cliente
-  res.json({ jobId });
+  res.json({ jobId, outputFile });
+});
+
+// --- 🔹 Endpoint de descarga ---
+app.get("/download/:id", (req, res) => {
+  const filename = fs.readdirSync(uploadDir).find(f => f.includes(req.params.id));
+  if (!filename) return res.status(404).send("Archivo no encontrado");
+
+  const filePath = path.join(uploadDir, filename);
+  res.download(filePath, "video_final.mp4", () => {
+    fs.unlinkSync(filePath);
+  });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor corriendo en ${PORT}`));
+app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
