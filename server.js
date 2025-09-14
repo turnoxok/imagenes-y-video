@@ -54,7 +54,7 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
   const logoH = parseInt(req.body.logoHeight) || 100;
 
   let command = ffmpeg(videoFile)
-    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"]);
+    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart", "-vf scale=1280:720"]);
 
   if (logoFile) {
     command = command.input(logoFile)
