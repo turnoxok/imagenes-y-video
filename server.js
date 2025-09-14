@@ -72,42 +72,35 @@ app.post(
             );
         }
 
-        // 🔹 barra de progreso simulada y suave
-        let simulatedProgress = 0;
-        const progressInterval = setInterval(() => {
-            // avanza suavemente entre 0 y 95%
-            if (simulatedProgress < 95) {
-                simulatedProgress += Math.random() * 3; // incremento aleatorio pequeño
-                if (progressClients[jobId]) {
-                    progressClients[jobId].write(
-                        `data: ${JSON.stringify({ percent: Math.floor(simulatedProgress) })}\n\n`
-                    );
-                }
-            }
-        }, 200); // actualiza cada 200ms
+       // 🔹 barra de progreso simulada y suave
+let simulatedProgress = 0;
+const progressInterval = setInterval(() => {
+    if (simulatedProgress < 95) {
+        simulatedProgress += Math.random() * 3; // incremento pequeño
+        simulatedProgress = Math.min(simulatedProgress, 95); // nunca pasa de 95
+        if (progressClients[jobId]) {
+            progressClients[jobId].write(
+                `data: ${JSON.stringify({ percent: Math.floor(simulatedProgress) })}\n\n`
+            );
+        }
+    }
+}, 200);
 
-        command
-            .on("progress", (progress) => {
-                // si ffmpeg reporta porcentaje, usamos eso como referencia
-                if (progress.percent && progressClients[jobId]) {
-                    simulatedProgress = Math.max(simulatedProgress, progress.percent);
-                    progressClients[jobId].write(
-                        `data: ${JSON.stringify({ percent: Math.floor(simulatedProgress) })}\n\n`
-                    );
-                }
-            })
-            .on("end", () => {
-                clearInterval(progressInterval);
-                if (progressClients[jobId]) {
-                    progressClients[jobId].write(
-                        `data: ${JSON.stringify({ percent: 100, end: true })}\n\n`
-                    );
-                    progressClients[jobId].end();
-                    delete progressClients[jobId];
-                }
-                fs.unlinkSync(videoFile);
-                if (logoFile) fs.unlinkSync(logoFile);
-            })
+// 🔹 al finalizar ffmpeg, aseguramos 100%
+command
+    .on("end", () => {
+        clearInterval(progressInterval);
+        if (progressClients[jobId]) {
+            progressClients[jobId].write(
+                `data: ${JSON.stringify({ percent: 100, end: true })}\n\n`
+            );
+            progressClients[jobId].end();
+            delete progressClients[jobId];
+        }
+        fs.unlinkSync(videoFile);
+        if (logoFile) fs.unlinkSync(logoFile);
+    });
+
             .on("error", (err) => {
                 clearInterval(progressInterval);
                 console.error("Error en la conversión:", err);
