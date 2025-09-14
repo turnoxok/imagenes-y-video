@@ -26,7 +26,7 @@ app.get("/progress/:id", (req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
-    Connection: "keep-alive"
+    Connection: "keep-alive",
   });
 
   const id = req.params.id;
@@ -58,20 +58,19 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
       "-c:v libx264",
       "-c:a aac",
       "-movflags +faststart",
-      "-pix_fmt yuv420p" // asegura compatibilidad con Instagram
+      "-preset veryfast",
     ]);
 
   if (logoFile) {
-    // Escala video a 480 de ancho y recorta altura a 854 para 9:16, overlay del logo
+    // Escalar el video a 480p manteniendo proporción y overlay del logo
     command = command.input(logoFile)
       .complexFilter([
-        `[0:v]scale=480:-1,crop=480:854[vid];` +
+        `[0:v]scale=w=480:h=-2:force_original_aspect_ratio=decrease[vid];` +
         `[1:v]scale=${logoW}:${logoH}[logo];` +
-        `[vid][logo]overlay=${logoX}:${logoY}`
+        `[vid][logo]overlay=${logoX}:${logoY}:format=auto`
       ]);
   } else {
-    // Solo video escalado y recortado
-    command = command.videoFilters("scale=480:-1,crop=480:854");
+    command = command.videoFilters("scale=w=480:h=-2:force_original_aspect_ratio=decrease");
   }
 
   command
@@ -86,7 +85,6 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
         progressClients[jobId].end();
         delete progressClients[jobId];
       }
-      // limpieza de temporales
       fs.unlinkSync(videoFile);
       if (logoFile) fs.unlinkSync(logoFile);
     })
@@ -118,7 +116,6 @@ app.get("/download/:id", (req, res) => {
   const stream = fs.createReadStream(filePath);
   stream.pipe(res);
 
-  // opcional: borrar archivo al terminar de enviar
   stream.on("close", () => {
     fs.unlink(filePath, () => {});
   });
