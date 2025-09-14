@@ -53,24 +53,22 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
   const logoW = parseInt(req.body.logoWidth) || 100;
   const logoH = parseInt(req.body.logoHeight) || 100;
 
-  let command = ffmpeg(videoFile)
-    .outputOptions([
-      "-c:v libx264",
-      "-c:a aac",
-      "-movflags +faststart",
-      "-preset veryfast",
-    ]);
+  // --- Creamos la cadena de filtros ---
+  let filters = [];
+
+  // Escalar video a max 480 en alto manteniendo proporción
+  filters.push("scale=-2:480");
 
   if (logoFile) {
-    // Escalar el video a 480p manteniendo proporción y overlay del logo
-    command = command.input(logoFile)
-      .complexFilter([
-        `[0:v]scale=w=480:h=-2:force_original_aspect_ratio=decrease[vid];` +
-        `[1:v]scale=${logoW}:${logoH}[logo];` +
-        `[vid][logo]overlay=${logoX}:${logoY}:format=auto`
-      ]);
-  } else {
-    command = command.videoFilters("scale=w=480:h=-2:force_original_aspect_ratio=decrease");
+    // Escalar logo y overlay
+    filters.push(`[1:v]scale=${logoW}:${logoH}[logo]`);
+    filters.push("[0:v][logo]overlay=" + logoX + ":" + logoY);
+  }
+
+  let command = ffmpeg(videoFile).outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"]);
+
+  if (filters.length > 0) {
+    command = command.complexFilter(filters);
   }
 
   command
