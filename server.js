@@ -54,25 +54,21 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
   const logoH = parseInt(req.body.logoHeight) || 100;
 
   // Escalamos a 720p respetando relación de aspecto y corregimos paridad de ancho/alto
-  let command = ffmpeg(videoFile)
-    .outputOptions([
-      "-c:v libx264",
-      "-c:a aac",
-      "-movflags +faststart"
-    ]);
+  
+    let command = ffmpeg(videoFile)
+  .outputOptions(["-c:v libx264", "-crf 23", "-preset fast", "-c:a aac"]);
 
-  if (logoFile) {
-    // Escala video con aspecto, escala logo, y aplica overlay
-    command = command.input(logoFile)
-      .complexFilter([
-        `[0:v]scale=-2:720:force_original_aspect_ratio=decrease,setsar=1[vid];` +
-        `[1:v]scale=${logoW}:${logoH}[logo];` +
-        `[vid][logo]overlay=${logoX}:${logoY}`
-      ]);
-  } else {
-    // Solo escalar video respetando aspecto
-    command = command.videoFilters("scale=-2:720:force_original_aspect_ratio=decrease,setsar=1");
-  }
+if (logoFile) {
+  command = command.input(logoFile)
+    .complexFilter([
+      `[0:v]scale=-2:720:force_original_aspect_ratio=decrease,setsar=1[vid];` +
+      `[1:v]scale=${logoW}:${logoH}[logo];` +
+      `[vid][logo]overlay=${logoX}:${logoY}`
+    ]);
+} else {
+  command = command.videoFilters("scale=-2:720:force_original_aspect_ratio=decrease,setsar=1");
+}
+
 
   command
     .on("progress", (progress) => {
