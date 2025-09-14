@@ -66,7 +66,7 @@ if (logoFile) {
       `[vid][logo]overlay=${logoX}:${logoY}`
     ]);
 } else {
-  command = command.videoFilters("scale=-2:720:force_original_aspect_ratio=decrease,setsar=1");
+  command = command.videoFilters("scale=-2:480:force_original_aspect_ratio=decrease,setsar=1");
 }
 
 
