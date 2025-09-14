@@ -72,50 +72,19 @@ app.post(
             );
         }
 
-        // 🔹 barra de progreso suave y confiable
+        // 🔹 barra de progreso simulada hasta 99%
         let simulatedProgress = 0;
         const progressInterval = setInterval(() => {
-            if (simulatedProgress < 95) {
+            if (simulatedProgress < 99 && progressClients[jobId]) {
                 simulatedProgress += Math.random() * 2; // avance suave
-                simulatedProgress = Math.min(simulatedProgress, 95);
-                if (progressClients[jobId]) {
-                    progressClients[jobId].write(
-                        `data: ${JSON.stringify({ percent: Math.floor(simulatedProgress) })}\n\n`
-                    );
-                }
+                simulatedProgress = Math.min(simulatedProgress, 99);
+                progressClients[jobId].write(
+                    `data: ${JSON.stringify({ percent: Math.floor(simulatedProgress) })}\n\n`
+                );
             }
         }, 200);
 
         command
-            .on("progress", (progress) => {
-                if (progress.percent && progressClients[jobId]) {
-                    simulatedProgress = Math.max(simulatedProgress, progress.percent);
-                    progressClients[jobId].write(
-                        `data: ${JSON.stringify({ percent: Math.floor(simulatedProgress) })}\n\n`
-                    );
-                }
-            })
-            .on("end", () => {
-                clearInterval(progressInterval);
-                if (progressClients[jobId]) {
-                    // envío inmediato al 100%
-                    progressClients[jobId].write(
-                        `data: ${JSON.stringify({ percent: 100, end: true })}\n\n`
-                    );
-                    // reenvío tras 200ms para asegurar recepción
-                    setTimeout(() => {
-                        if (progressClients[jobId]) {
-                            progressClients[jobId].write(
-                                `data: ${JSON.stringify({ percent: 100, end: true })}\n\n`
-                            );
-                            progressClients[jobId].end();
-                            delete progressClients[jobId];
-                        }
-                    }, 200);
-                }
-                fs.unlinkSync(videoFile);
-                if (logoFile) fs.unlinkSync(logoFile);
-            })
             .on("error", (err) => {
                 clearInterval(progressInterval);
                 console.error("Error en la conversión:", err);
@@ -126,6 +95,19 @@ app.post(
                     progressClients[jobId].end();
                     delete progressClients[jobId];
                 }
+            })
+            .on("end", () => {
+                clearInterval(progressInterval);
+                if (progressClients[jobId]) {
+                    // 🔹 enviamos solo "end: true" y el cliente interpreta 100%
+                    progressClients[jobId].write(
+                        `data: ${JSON.stringify({ end: true })}\n\n`
+                    );
+                    progressClients[jobId].end();
+                    delete progressClients[jobId];
+                }
+                fs.unlinkSync(videoFile);
+                if (logoFile) fs.unlinkSync(logoFile);
             })
             .save(outputFile);
 
