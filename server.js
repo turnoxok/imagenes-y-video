@@ -38,11 +38,11 @@ app.get("/progress/:id", (req, res) => {
     });
 });
 
-// 🔹 conversión con ffmpeg
+// 🔹 conversión con ffmpeg segura para Railway
 app.post(
     "/convert",
     upload.fields([{ name: "video" }, { name: "logo" }]),
-    (req, res) => {
+    async (req, res) => {
         if (!req.files || !req.files.video) {
             return res.status(400).send("No se subió video");
         }
@@ -57,45 +57,67 @@ app.post(
         const logoW = parseInt(req.body.logoWidth) || 100;
         const logoH = parseInt(req.body.logoHeight) || 100;
 
-        let command = ffmpeg(videoFile).outputOptions([
-            "-c:v libx264",
-            "-c:a aac",
-            "-movflags +faststart"
-        ]);
+        // 🔹 obtener resolución original
+        ffmpeg.ffprobe(videoFile, (err, metadata) => {
+            if (err) {
+                console.error("Error leyendo metadata:", err);
+                return res.status(500).send("Error leyendo video");
+            }
 
-        if (logoFile) {
-            command = command.input(logoFile).complexFilter(
-                `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
-            );
-        }
+            const videoStream = metadata.streams.find(s => s.codec_type === "video");
+            let width = videoStream.width;
+            let height = videoStream.height;
 
-        command
-            .on("progress", (progress) => {
-                if (progressClients[jobId]) {
-                    progressClients[jobId].write(`data: ${JSON.stringify(progress)}\n\n`);
-                }
-            })
-            .on("end", () => {
-                if (progressClients[jobId]) {
-                    progressClients[jobId].write(`data: ${JSON.stringify({ end: true })}\n\n`);
-                    progressClients[jobId].end();
-                    delete progressClients[jobId];
-                }
-                // limpieza de temporales
-                fs.unlinkSync(videoFile);
-                if (logoFile) fs.unlinkSync(logoFile);
-            })
-            .on("error", (err) => {
-                console.error("Error en la conversión:", err);
-                if (progressClients[jobId]) {
-                    progressClients[jobId].write(`data: ${JSON.stringify({ error: true })}\n\n`);
-                    progressClients[jobId].end();
-                    delete progressClients[jobId];
-                }
-            })
-            .save(outputFile);
+            // limitar a 1080p
+            const maxHeight = 1080;
+            if (height > maxHeight) {
+                const ratio = maxHeight / height;
+                height = maxHeight;
+                width = Math.round(width * ratio);
+            }
 
-        res.json({ jobId });
+            let command = ffmpeg(videoFile).outputOptions([
+                "-c:v libx264",
+                "-preset slow",
+                "-crf 20",
+                "-c:a aac",
+                "-b:a 192k",
+                "-movflags +faststart"
+            ]).size(`${width}x${height}`);
+
+            if (logoFile) {
+                command = command.input(logoFile).complexFilter(
+                    `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
+                );
+            }
+
+            command
+                .on("progress", (progress) => {
+                    if (progressClients[jobId]) {
+                        progressClients[jobId].write(`data: ${JSON.stringify(progress)}\n\n`);
+                    }
+                })
+                .on("end", () => {
+                    if (progressClients[jobId]) {
+                        progressClients[jobId].write(`data: ${JSON.stringify({ end: true })}\n\n`);
+                        progressClients[jobId].end();
+                        delete progressClients[jobId];
+                    }
+                    fs.unlinkSync(videoFile);
+                    if (logoFile) fs.unlinkSync(logoFile);
+                })
+                .on("error", (err) => {
+                    console.error("Error en la conversión:", err);
+                    if (progressClients[jobId]) {
+                        progressClients[jobId].write(`data: ${JSON.stringify({ error: true })}\n\n`);
+                        progressClients[jobId].end();
+                        delete progressClients[jobId];
+                    }
+                })
+                .save(outputFile);
+
+            res.json({ jobId });
+        });
     }
 );
 
@@ -114,7 +136,6 @@ app.get("/download/:id", (req, res) => {
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
 
-    // opcional: borrar archivo al terminar de enviar
     stream.on("close", () => {
         fs.unlink(filePath, () => {});
     });
