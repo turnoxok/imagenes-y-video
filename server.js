@@ -54,12 +54,22 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
   const logoH = parseInt(req.body.logoHeight) || 100;
 
   let command = ffmpeg(videoFile)
-    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart", "-vf scale=1280:720"]);
+  .outputOptions([
+    "-c:v libx264",
+    "-c:a aac",
+    "-movflags +faststart"
+  ]);
 
-  if (logoFile) {
-    command = command.input(logoFile)
-      .complexFilter(`[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`);
-  }
+if (logoFile) {
+  // Escala el video a 1280x720 y luego aplica overlay del logo
+  command = command.input(logoFile)
+    .complexFilter([
+      `[0:v]scale=1280:720[vid];[1:v]scale=${logoW}:${logoH}[logo];[vid][logo]overlay=${logoX}:${logoY}`
+    ]);
+} else {
+  // Solo escalar video si no hay logo
+  command = command.videoFilters("scale=1280:720");
+}
 
   command
     .on("progress", (progress) => {
