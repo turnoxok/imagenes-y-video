@@ -99,20 +99,20 @@ command
         }
         fs.unlinkSync(videoFile);
         if (logoFile) fs.unlinkSync(logoFile);
-    });
+    })
+    .on("error", (err) => {
+        clearInterval(progressInterval);
+        console.error("Error en la conversión:", err);
+        if (progressClients[jobId]) {
+            progressClients[jobId].write(
+                `data: ${JSON.stringify({ error: true })}\n\n`
+            );
+            progressClients[jobId].end();
+            delete progressClients[jobId];
+        }
+    })
+    .save(outputFile);
 
-            .on("error", (err) => {
-                clearInterval(progressInterval);
-                console.error("Error en la conversión:", err);
-                if (progressClients[jobId]) {
-                    progressClients[jobId].write(
-                        `data: ${JSON.stringify({ error: true })}\n\n`
-                    );
-                    progressClients[jobId].end();
-                    delete progressClients[jobId];
-                }
-            })
-            .save(outputFile);
 
         res.json({ jobId });
     }
