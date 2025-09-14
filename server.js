@@ -18,10 +18,9 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 const upload = multer({ dest: uploadDir });
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-// 🔹 almacenamiento de clientes SSE
+// SSE para progreso
 const progressClients = {};
 
-// SSE para progreso
 app.get("/progress/:id", (req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -37,41 +36,18 @@ app.get("/progress/:id", (req, res) => {
   });
 });
 
-// 🔹 conversión con ffmpeg
-app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req, res) => {
-  if (!req.files || !req.files.video) {
-    return res.status(400).send("No se subió video");
-  }
+// Conversión simplificada y confiable
+app.post("/convert", upload.single("video"), (req, res) => {
+  if (!req.file) return res.status(400).send("No se subió video");
 
-  const videoFile = req.files.video[0].path;
-  const logoFile = req.files.logo ? req.files.logo[0].path : null;
+  const videoFile = req.file.path;
   const jobId = Date.now().toString();
   const outputFile = path.join(outputDir, `${jobId}.mp4`);
 
-  const logoX = parseInt(req.body.logoX) || 0;
-  const logoY = parseInt(req.body.logoY) || 0;
-  const logoW = parseInt(req.body.logoWidth) || 100;
-  const logoH = parseInt(req.body.logoHeight) || 100;
-
-  // --- Creamos la cadena de filtros ---
-  let filters = [];
-
-  // Escalar video a max 480 en alto manteniendo proporción
-  filters.push("scale=-2:480");
-
-  if (logoFile) {
-    // Escalar logo y overlay
-    filters.push(`[1:v]scale=${logoW}:${logoH}[logo]`);
-    filters.push("[0:v][logo]overlay=" + logoX + ":" + logoY);
-  }
-
-  let command = ffmpeg(videoFile).outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"]);
-
-  if (filters.length > 0) {
-    command = command.complexFilter(filters);
-  }
-
-  command
+  // ⚡ Escalamos manteniendo proporción, ancho automático
+  ffmpeg(videoFile)
+    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
+    .videoFilters("scale=-2:480") // siempre 480p, mantiene proporción
     .on("progress", (progress) => {
       if (progressClients[jobId]) {
         progressClients[jobId].write(`data: ${JSON.stringify(progress)}\n\n`);
@@ -84,7 +60,6 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
         delete progressClients[jobId];
       }
       fs.unlinkSync(videoFile);
-      if (logoFile) fs.unlinkSync(logoFile);
     })
     .on("error", (err) => {
       console.error("Error en la conversión:", err);
@@ -93,13 +68,14 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
         progressClients[jobId].end();
         delete progressClients[jobId];
       }
+      fs.unlinkSync(videoFile);
     })
     .save(outputFile);
 
   res.json({ jobId });
 });
 
-// 🔹 descarga con streaming
+// Descarga
 app.get("/download/:id", (req, res) => {
   const jobId = req.params.id;
   const filePath = path.join(outputDir, `${jobId}.mp4`);
