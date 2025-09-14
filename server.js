@@ -2,7 +2,6 @@ const express = require("express");
 const multer = require("multer");
 const ffmpeg = require("fluent-ffmpeg");
 const ffmpegPath = require("ffmpeg-static");
-const ffprobePath = require("ffprobe-static").path;
 const fs = require("fs");
 const path = require("path");
 const cors = require("cors");
@@ -19,7 +18,6 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
 const upload = multer({ dest: uploadDir });
 ffmpeg.setFfmpegPath(ffmpegPath);
-ffmpeg.setFfprobePath(ffprobePath);
 
 // 🔹 almacenamiento de clientes SSE
 const progressClients = {};
@@ -40,7 +38,7 @@ app.get("/progress/:id", (req, res) => {
     });
 });
 
-// 🔹 conversión híbrida
+// 🔹 conversión con ffmpeg más rápida y barra de progreso simulada
 app.post(
     "/convert",
     upload.fields([{ name: "video" }, { name: "logo" }]),
@@ -59,75 +57,67 @@ app.post(
         const logoW = parseInt(req.body.logoWidth) || 100;
         const logoH = parseInt(req.body.logoHeight) || 100;
 
-        // 🔹 leer metadata con ffprobe-static
-        ffmpeg.ffprobe(videoFile, (err, metadata) => {
-            if (err) {
-                console.error("Error leyendo metadata:", err);
-                return res.status(500).send("Error leyendo video");
-            }
+        let command = ffmpeg(videoFile).outputOptions([
+            "-c:v libx264",
+            "-preset veryfast",   // más rápido que slow
+            "-crf 23",            // buena calidad sin ser pesado
+            "-c:a aac",
+            "-b:a 128k",
+            "-movflags +faststart"
+        ]);
 
-            const videoStream = metadata.streams.find(s => s.codec_type === "video");
-            let width = videoStream.width;
-            let height = videoStream.height;
+        if (logoFile) {
+            command = command.input(logoFile).complexFilter(
+                `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
+            );
+        }
 
-            // 🔹 definir resolución según tamaño
-            let targetWidth = width;
-            let targetHeight = height;
-
-            if (height > 1080) {
-                // muy grande → reducir a 720p
-                const ratio = 720 / height;
-                targetHeight = 720;
-                targetWidth = Math.round(width * ratio);
-            } else if (height > 720) {
-                // mediano → limitar a 1080p
-                targetHeight = Math.min(height, 1080);
-                targetWidth = Math.round(width * (targetHeight / height));
-            }
-
-            // 🔹 configurar ffmpeg
-            let command = ffmpeg(videoFile).outputOptions([
-                "-c:v libx264",
-                "-preset slow",
-                "-crf 20",
-                "-c:a aac",
-                "-b:a 192k",
-                "-movflags +faststart"
-            ]).size(`${targetWidth}x${targetHeight}`);
-
-            if (logoFile) {
-                command = command.input(logoFile).complexFilter(
-                    `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
+        // 🔹 simulación de barra de progreso cada segundo
+        let simulatedProgress = 0;
+        const progressInterval = setInterval(() => {
+            simulatedProgress = Math.min(simulatedProgress + Math.random() * 10, 99);
+            if (progressClients[jobId]) {
+                progressClients[jobId].write(
+                    `data: ${JSON.stringify({ percent: simulatedProgress.toFixed(0) })}\n\n`
                 );
             }
+        }, 1000);
 
-            command
-                .on("progress", (progress) => {
-                    if (progressClients[jobId]) {
-                        progressClients[jobId].write(`data: ${JSON.stringify(progress)}\n\n`);
-                    }
-                })
-                .on("end", () => {
-                    if (progressClients[jobId]) {
-                        progressClients[jobId].write(`data: ${JSON.stringify({ end: true })}\n\n`);
-                        progressClients[jobId].end();
-                        delete progressClients[jobId];
-                    }
-                    fs.unlinkSync(videoFile);
-                    if (logoFile) fs.unlinkSync(logoFile);
-                })
-                .on("error", (err) => {
-                    console.error("Error en la conversión:", err);
-                    if (progressClients[jobId]) {
-                        progressClients[jobId].write(`data: ${JSON.stringify({ error: true })}\n\n`);
-                        progressClients[jobId].end();
-                        delete progressClients[jobId];
-                    }
-                })
-                .save(outputFile);
+        command
+            .on("progress", (progress) => {
+                // usa porcentaje real si lo da ffmpeg
+                if (progress.percent && progressClients[jobId]) {
+                    progressClients[jobId].write(
+                        `data: ${JSON.stringify({ percent: progress.percent.toFixed(0) })}\n\n`
+                    );
+                }
+            })
+            .on("end", () => {
+                clearInterval(progressInterval);
+                if (progressClients[jobId]) {
+                    progressClients[jobId].write(
+                        `data: ${JSON.stringify({ percent: 100, end: true })}\n\n`
+                    );
+                    progressClients[jobId].end();
+                    delete progressClients[jobId];
+                }
+                fs.unlinkSync(videoFile);
+                if (logoFile) fs.unlinkSync(logoFile);
+            })
+            .on("error", (err) => {
+                clearInterval(progressInterval);
+                console.error("Error en la conversión:", err);
+                if (progressClients[jobId]) {
+                    progressClients[jobId].write(
+                        `data: ${JSON.stringify({ error: true })}\n\n`
+                    );
+                    progressClients[jobId].end();
+                    delete progressClients[jobId];
+                }
+            })
+            .save(outputFile);
 
-            res.json({ jobId });
-        });
+        res.json({ jobId });
     }
 );
 
@@ -152,4 +142,6 @@ app.get("/download/:id", (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
+app.listen(PORT, () =>
+    console.log(`Servidor corriendo en puerto ${PORT}`)
+);
