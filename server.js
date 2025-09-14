@@ -61,7 +61,7 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
 if (logoFile) {
   command = command.input(logoFile)
     .complexFilter([
-      `[0:v]scale=-2:720:force_original_aspect_ratio=decrease,setsar=1[vid];` +
+      `[0:v]scale=-2:480:force_original_aspect_ratio=decrease,setsar=1[vid];` +
       `[1:v]scale=${logoW}:${logoH}[logo];` +
       `[vid][logo]overlay=${logoX}:${logoY}`
     ]);
