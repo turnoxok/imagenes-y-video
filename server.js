@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const ffmpeg = require("fluent-ffmpeg");
 const ffmpegPath = require("ffmpeg-static");
+const ffprobePath = require("ffprobe-static").path;
 const fs = require("fs");
 const path = require("path");
 const cors = require("cors");
@@ -18,6 +19,7 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
 const upload = multer({ dest: uploadDir });
 ffmpeg.setFfmpegPath(ffmpegPath);
+ffmpeg.setFfprobePath(ffprobePath);
 
 // 🔹 almacenamiento de clientes SSE
 const progressClients = {};
@@ -38,11 +40,11 @@ app.get("/progress/:id", (req, res) => {
     });
 });
 
-// 🔹 conversión con ffmpeg segura para Railway
+// 🔹 conversión híbrida
 app.post(
     "/convert",
     upload.fields([{ name: "video" }, { name: "logo" }]),
-    async (req, res) => {
+    (req, res) => {
         if (!req.files || !req.files.video) {
             return res.status(400).send("No se subió video");
         }
@@ -57,7 +59,7 @@ app.post(
         const logoW = parseInt(req.body.logoWidth) || 100;
         const logoH = parseInt(req.body.logoHeight) || 100;
 
-        // 🔹 obtener resolución original
+        // 🔹 leer metadata con ffprobe-static
         ffmpeg.ffprobe(videoFile, (err, metadata) => {
             if (err) {
                 console.error("Error leyendo metadata:", err);
@@ -68,14 +70,22 @@ app.post(
             let width = videoStream.width;
             let height = videoStream.height;
 
-            // limitar a 1080p
-            const maxHeight = 1080;
-            if (height > maxHeight) {
-                const ratio = maxHeight / height;
-                height = maxHeight;
-                width = Math.round(width * ratio);
+            // 🔹 definir resolución según tamaño
+            let targetWidth = width;
+            let targetHeight = height;
+
+            if (height > 1080) {
+                // muy grande → reducir a 720p
+                const ratio = 720 / height;
+                targetHeight = 720;
+                targetWidth = Math.round(width * ratio);
+            } else if (height > 720) {
+                // mediano → limitar a 1080p
+                targetHeight = Math.min(height, 1080);
+                targetWidth = Math.round(width * (targetHeight / height));
             }
 
+            // 🔹 configurar ffmpeg
             let command = ffmpeg(videoFile).outputOptions([
                 "-c:v libx264",
                 "-preset slow",
@@ -83,7 +93,7 @@ app.post(
                 "-c:a aac",
                 "-b:a 192k",
                 "-movflags +faststart"
-            ]).size(`${width}x${height}`);
+            ]).size(`${targetWidth}x${targetHeight}`);
 
             if (logoFile) {
                 command = command.input(logoFile).complexFilter(
