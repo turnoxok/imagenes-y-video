@@ -38,7 +38,7 @@ app.get("/progress/:id", (req, res) => {
     });
 });
 
-// 🔹 conversión con ffmpeg más rápida y barra de progreso simulada
+// 🔹 conversión con barra de progreso suave
 app.post(
     "/convert",
     upload.fields([{ name: "video" }, { name: "logo" }]),
@@ -59,8 +59,8 @@ app.post(
 
         let command = ffmpeg(videoFile).outputOptions([
             "-c:v libx264",
-            "-preset veryfast",   // más rápido que slow
-            "-crf 23",            // buena calidad sin ser pesado
+            "-preset veryfast",
+            "-crf 23",
             "-c:a aac",
             "-b:a 128k",
             "-movflags +faststart"
@@ -72,23 +72,27 @@ app.post(
             );
         }
 
-        // 🔹 simulación de barra de progreso cada segundo
+        // 🔹 barra de progreso simulada y suave
         let simulatedProgress = 0;
         const progressInterval = setInterval(() => {
-            simulatedProgress = Math.min(simulatedProgress + Math.random() * 10, 99);
-            if (progressClients[jobId]) {
-                progressClients[jobId].write(
-                    `data: ${JSON.stringify({ percent: simulatedProgress.toFixed(0) })}\n\n`
-                );
+            // avanza suavemente entre 0 y 95%
+            if (simulatedProgress < 95) {
+                simulatedProgress += Math.random() * 3; // incremento aleatorio pequeño
+                if (progressClients[jobId]) {
+                    progressClients[jobId].write(
+                        `data: ${JSON.stringify({ percent: Math.floor(simulatedProgress) })}\n\n`
+                    );
+                }
             }
-        }, 1000);
+        }, 200); // actualiza cada 200ms
 
         command
             .on("progress", (progress) => {
-                // usa porcentaje real si lo da ffmpeg
+                // si ffmpeg reporta porcentaje, usamos eso como referencia
                 if (progress.percent && progressClients[jobId]) {
+                    simulatedProgress = Math.max(simulatedProgress, progress.percent);
                     progressClients[jobId].write(
-                        `data: ${JSON.stringify({ percent: progress.percent.toFixed(0) })}\n\n`
+                        `data: ${JSON.stringify({ percent: Math.floor(simulatedProgress) })}\n\n`
                     );
                 }
             })
