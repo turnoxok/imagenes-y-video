@@ -38,7 +38,6 @@ app.get("/progress/:id", (req, res) => {
 });
 
 // 🔹 conversión con ffmpeg
-// 🔹 conversión con ffmpeg
 app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req, res) => {
   if (!req.files || !req.files.video) {
     return res.status(400).send("No se subió video");
@@ -54,21 +53,25 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
   const logoW = parseInt(req.body.logoWidth) || 100;
   const logoH = parseInt(req.body.logoHeight) || 100;
 
-  // Escalar video a 480p vertical automáticamente
   let command = ffmpeg(videoFile)
     .outputOptions([
       "-c:v libx264",
       "-c:a aac",
       "-movflags +faststart",
-      "-vf scale='min(480,iw)':'min(854,ih)':force_original_aspect_ratio=decrease,pad=480:854:(ow-iw)/2:(oh-ih)/2"
+      "-pix_fmt yuv420p" // asegura compatibilidad con Instagram
     ]);
 
   if (logoFile) {
-    // Aplicar logo sobre el video ya escalado
+    // Escala video a 480 de ancho y recorta altura a 854 para 9:16, overlay del logo
     command = command.input(logoFile)
       .complexFilter([
-        `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
+        `[0:v]scale=480:-1,crop=480:854[vid];` +
+        `[1:v]scale=${logoW}:${logoH}[logo];` +
+        `[vid][logo]overlay=${logoX}:${logoY}`
       ]);
+  } else {
+    // Solo video escalado y recortado
+    command = command.videoFilters("scale=480:-1,crop=480:854");
   }
 
   command
@@ -83,6 +86,7 @@ app.post("/convert", upload.fields([{ name: "video" }, { name: "logo" }]), (req,
         progressClients[jobId].end();
         delete progressClients[jobId];
       }
+      // limpieza de temporales
       fs.unlinkSync(videoFile);
       if (logoFile) fs.unlinkSync(logoFile);
     })
