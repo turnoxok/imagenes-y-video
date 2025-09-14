@@ -12,87 +12,112 @@ app.use(express.json());
 
 const uploadDir = path.join(__dirname, "uploads");
 const outputDir = path.join(__dirname, "outputs");
+
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
 const upload = multer({ dest: uploadDir });
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-// SSE para progreso
+// 🔹 almacenamiento de clientes SSE
 const progressClients = {};
 
+// SSE para progreso
 app.get("/progress/:id", (req, res) => {
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-  });
+    res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive"
+    });
 
-  const id = req.params.id;
-  progressClients[id] = res;
+    const id = req.params.id;
+    progressClients[id] = res;
 
-  req.on("close", () => {
-    delete progressClients[id];
-  });
+    req.on("close", () => {
+        delete progressClients[id];
+    });
 });
 
-// Conversión simplificada y confiable
-app.post("/convert", upload.single("video"), (req, res) => {
-  if (!req.file) return res.status(400).send("No se subió video");
+// 🔹 conversión con ffmpeg
+app.post(
+    "/convert",
+    upload.fields([{ name: "video" }, { name: "logo" }]),
+    (req, res) => {
+        if (!req.files || !req.files.video) {
+            return res.status(400).send("No se subió video");
+        }
 
-  const videoFile = req.file.path;
-  const jobId = Date.now().toString();
-  const outputFile = path.join(outputDir, `${jobId}.mp4`);
+        const videoFile = req.files.video[0].path;
+        const logoFile = req.files.logo ? req.files.logo[0].path : null;
+        const jobId = Date.now().toString();
+        const outputFile = path.join(outputDir, `${jobId}.mp4`);
 
-  // ⚡ Escalamos manteniendo proporción, ancho automático
-  ffmpeg(videoFile)
-    .outputOptions(["-c:v libx264", "-c:a aac", "-movflags +faststart"])
-    .videoFilters("scale=-2:480") // siempre 480p, mantiene proporción
-    .on("progress", (progress) => {
-      if (progressClients[jobId]) {
-        progressClients[jobId].write(`data: ${JSON.stringify(progress)}\n\n`);
-      }
-    })
-    .on("end", () => {
-      if (progressClients[jobId]) {
-        progressClients[jobId].write(`data: ${JSON.stringify({ end: true })}\n\n`);
-        progressClients[jobId].end();
-        delete progressClients[jobId];
-      }
-      fs.unlinkSync(videoFile);
-    })
-    .on("error", (err) => {
-      console.error("Error en la conversión:", err);
-      if (progressClients[jobId]) {
-        progressClients[jobId].write(`data: ${JSON.stringify({ error: true })}\n\n`);
-        progressClients[jobId].end();
-        delete progressClients[jobId];
-      }
-      fs.unlinkSync(videoFile);
-    })
-    .save(outputFile);
+        const logoX = parseInt(req.body.logoX) || 0;
+        const logoY = parseInt(req.body.logoY) || 0;
+        const logoW = parseInt(req.body.logoWidth) || 100;
+        const logoH = parseInt(req.body.logoHeight) || 100;
 
-  res.json({ jobId });
-});
+        let command = ffmpeg(videoFile).outputOptions([
+            "-c:v libx264",
+            "-c:a aac",
+            "-movflags +faststart"
+        ]);
 
-// Descarga
+        if (logoFile) {
+            command = command.input(logoFile).complexFilter(
+                `[1:v]scale=${logoW}:${logoH}[logo];[0:v][logo]overlay=${logoX}:${logoY}`
+            );
+        }
+
+        command
+            .on("progress", (progress) => {
+                if (progressClients[jobId]) {
+                    progressClients[jobId].write(`data: ${JSON.stringify(progress)}\n\n`);
+                }
+            })
+            .on("end", () => {
+                if (progressClients[jobId]) {
+                    progressClients[jobId].write(`data: ${JSON.stringify({ end: true })}\n\n`);
+                    progressClients[jobId].end();
+                    delete progressClients[jobId];
+                }
+                // limpieza de temporales
+                fs.unlinkSync(videoFile);
+                if (logoFile) fs.unlinkSync(logoFile);
+            })
+            .on("error", (err) => {
+                console.error("Error en la conversión:", err);
+                if (progressClients[jobId]) {
+                    progressClients[jobId].write(`data: ${JSON.stringify({ error: true })}\n\n`);
+                    progressClients[jobId].end();
+                    delete progressClients[jobId];
+                }
+            })
+            .save(outputFile);
+
+        res.json({ jobId });
+    }
+);
+
+// 🔹 descarga con streaming
 app.get("/download/:id", (req, res) => {
-  const jobId = req.params.id;
-  const filePath = path.join(outputDir, `${jobId}.mp4`);
+    const jobId = req.params.id;
+    const filePath = path.join(outputDir, `${jobId}.mp4`);
 
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: "Archivo no encontrado" });
-  }
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Archivo no encontrado" });
+    }
 
-  res.setHeader("Content-Type", "video/mp4");
-  res.setHeader("Content-Disposition", "attachment; filename=video_final.mp4");
+    res.setHeader("Content-Type", "video/mp4");
+    res.setHeader("Content-Disposition", "attachment; filename=video_final.mp4");
 
-  const stream = fs.createReadStream(filePath);
-  stream.pipe(res);
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
 
-  stream.on("close", () => {
-    fs.unlink(filePath, () => {});
-  });
+    // opcional: borrar archivo al terminar de enviar
+    stream.on("close", () => {
+        fs.unlink(filePath, () => {});
+    });
 });
 
 const PORT = process.env.PORT || 8080;
